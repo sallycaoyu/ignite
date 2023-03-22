@@ -38,6 +38,12 @@ def test__check_type():
         acc._check_type((torch.rand([1, 1, 1]), torch.rand([1])))
 
 
+def test__check_mode():
+    acc = Accuracy(mode="unchanged")
+    with pytest.raises(ValueError, match=r"Mode must be one of \"probabilities\", \"logits\", \"labels\", or None."):
+        acc._check_mode((torch.rand([1, 1, 1]), torch.rand([1])))
+
+
 def test_binary_wrong_inputs():
     acc = Accuracy()
 
@@ -104,6 +110,117 @@ def test_binary_input(n_times, test_data_binary):
     np_y_pred = y_pred.numpy().ravel()
 
     assert acc._type == "binary"
+    assert isinstance(acc.compute(), float)
+    assert accuracy_score(np_y, np_y_pred) == pytest.approx(acc.compute())
+
+
+@pytest.fixture(params=range(12))
+def test_data_binary_probabilities_mode(request):
+    return [
+        # Binary accuracy on input of shape (N, 1) or (N, )
+        (torch.rand(10).long(), torch.rand(10).long(), 1),
+        (torch.rand(10, 1).long(), torch.rand(10, 1).long(), 1),
+        # updated batches
+        (torch.rand(50).long(), torch.rand(50).long(), 16),
+        (torch.rand(50, 1).long(), torch.rand(50, 1).long(), 16),
+        # Binary accuracy on input of shape (N, L)
+        (torch.rand(10, 5).long(), torch.rand(10, 5).long(), 1),
+        (torch.rand(10, 8).long(), torch.rand(10, 8).long(), 1),
+        # updated batches
+        (torch.rand(50, 5).long(), torch.rand(50, 5).long(), 16),
+        (torch.rand(50, 8).long(), torch.rand(50, 8).long(), 16),
+        # Binary accuracy on input of shape (N, H, W, ...)
+        (torch.rand(4, 1, 12, 10).long(), torch.rand(4, 1, 12, 10).long(), 1),
+        (torch.rand(15, 1, 20, 10).long(), torch.rand(15, 1, 20, 10).long(), 1),
+        # updated batches
+        (torch.rand(50, 1, 12, 10).long(), torch.rand(50, 1, 12, 10).long(), 16),
+        (torch.rand(50, 1, 20, 10).long(), torch.rand(50, 1, 20, 10).long(), 16),
+    ][request.param]
+
+
+@pytest.mark.parametrize("n_times", range(5))
+def test_binary_input_probabilities_mode(n_times, test_data_binary_probabilities_mode):
+    acc = Accuracy(mode="probabilities")
+
+    y_pred, y, batch_size = test_data_binary_probabilities_mode
+    acc.reset()
+    if batch_size > 1:
+        n_iters = y.shape[0] // batch_size + 1
+        for i in range(n_iters):
+            idx = i * batch_size
+            acc.update((y_pred[idx : idx + batch_size], y[idx : idx + batch_size]))
+    else:
+        acc.update((y_pred, y))
+
+    np_y = y.numpy().ravel()
+    np_y_pred = y_pred.numpy().ravel()
+
+    assert acc._type == "binary"
+    assert acc._mode == "probabilities"
+    assert isinstance(acc.compute(), float)
+    assert accuracy_score(np_y, np_y_pred) == pytest.approx(acc.compute())
+
+
+@pytest.fixture(params=range(12))
+def test_data_binary_logits_mode(request):
+    eps = 1e-6
+    return [
+        # Binary accuracy on input of shape (N, 1) or (N, )
+        (torch.special.logit(torch.rand(10), eps).long(), torch.special.logit(torch.rand(10), eps).long(), 1),
+        (torch.special.logit(torch.rand(10, 1), eps).long(), torch.special.logit(torch.rand(10, 1), eps).long(), 1),
+        # updated batches
+        (torch.special.logit(torch.rand(50), eps).long(), torch.special.logit(torch.rand(50), eps).long(), 16),
+        (torch.special.logit(torch.rand(50, 1), eps).long(), torch.special.logit(torch.rand(50, 1), eps).long(), 16),
+        # Binary accuracy on input of shape (N, L)
+        (torch.special.logit(torch.rand(10, 5), eps).long(), torch.special.logit(torch.rand(10, 5), eps).long(), 1),
+        (torch.special.logit(torch.rand(10, 8), eps).long(), torch.special.logit(torch.rand(10, 8), eps).long(), 1),
+        # updated batches
+        (torch.special.logit(torch.rand(50, 5), eps).long(), torch.special.logit(torch.rand(50, 5), eps).long(), 16),
+        (torch.special.logit(torch.rand(50, 8), eps).long(), torch.special.logit(torch.rand(50, 8), eps).long(), 16),
+        # Binary accuracy on input of shape (N, H, W, ...)
+        (
+            torch.special.logit(torch.rand(4, 1, 12, 10), eps).long(),
+            torch.special.logit(torch.rand(4, 1, 12, 10), eps).long(),
+            1,
+        ),
+        (
+            torch.special.logit(torch.rand(15, 1, 20, 10), eps).long(),
+            torch.special.logit(torch.rand(15, 1, 20, 10), eps).long(),
+            1,
+        ),
+        # updated batches
+        (
+            torch.special.logit(torch.rand(50, 1, 12, 10), eps).long(),
+            torch.special.logit(torch.rand(50, 1, 12, 10), eps).long(),
+            16,
+        ),
+        (
+            torch.special.logit(torch.rand(50, 1, 20, 10), eps).long(),
+            torch.special.logit(torch.rand(50, 1, 20, 10), eps).long(),
+            16,
+        ),
+    ][request.param]
+
+
+@pytest.mark.parametrize("n_times", range(5))
+def test_binary_input_logits_mode(n_times, test_data_binary_logits_mode):
+    acc = Accuracy(mode="logits")
+
+    y_pred, y, batch_size = test_data_binary_logits_mode
+    acc.reset()
+    if batch_size > 1:
+        n_iters = y.shape[0] // batch_size + 1
+        for i in range(n_iters):
+            idx = i * batch_size
+            acc.update((y_pred[idx : idx + batch_size], y[idx : idx + batch_size]))
+    else:
+        acc.update((y_pred, y))
+
+    np_y = y.numpy().ravel()
+    np_y_pred = y_pred.numpy().ravel()
+
+    assert acc._type == "binary"
+    assert acc._mode == "logits"
     assert isinstance(acc.compute(), float)
     assert accuracy_score(np_y, np_y_pred) == pytest.approx(acc.compute())
 
@@ -237,6 +354,52 @@ def test_multilabel_input(n_times, test_data_multilabel):
     np_y = to_numpy_multilabel(y)
 
     assert acc._type == "multilabel"
+    assert isinstance(acc.compute(), float)
+    assert accuracy_score(np_y, np_y_pred) == pytest.approx(acc.compute())
+
+
+@pytest.fixture(params=range(12))
+def test_data_multilabel_probabilities_mode(request):
+    return [
+        # Multilabel input data of shape (N, C) and (N, C)
+        (torch.rand(10, 4).long(), torch.rand(10, 4).long(), 1),
+        (torch.rand(10, 7).long(), torch.rand(10, 7).long(), 1),
+        # updated batches
+        (torch.rand(50, 4).long(), torch.rand(50, 4).long(), 16),
+        (torch.rand(50, 7).long(), torch.rand(50, 7).long(), 16),
+        # Multilabel input data of shape (N, H, W)
+        (torch.rand(10, 5, 10).long(), torch.rand(10, 5, 10).long(), 1),
+        (torch.rand(10, 4, 10).long(), torch.rand(10, 4, 10).long(), 1),
+        # updated batches
+        (torch.rand(50, 5, 10).long(), torch.rand(50, 5, 10).long(), 16),
+        (torch.rand(50, 4, 10).long(), torch.rand(50, 4, 10).long(), 16),
+        # Multilabel input data of shape (N, C, H, W, ...) and (N, C, H, W, ...)
+        (torch.rand(4, 5, 12, 10).long(), torch.rand(4, 5, 12, 10).long(), 1),
+        (torch.rand(4, 10, 12, 8).long(), torch.rand(4, 10, 12, 8).long(), 1),
+        # updated batches
+        (torch.rand(50, 5, 12, 10).long(), torch.rand(50, 5, 12, 10).long(), 16),
+        (torch.rand(50, 10, 12, 8).long(), torch.rand(50, 10, 12, 8).long(), 16),
+    ][request.param]
+
+
+@pytest.mark.parametrize("n_times", range(5))
+def test_multilabel_input_probabilities_mode(n_times, test_data_multilabel_probabilities_mode):
+    acc = Accuracy(is_multilabel=True, mode="probabilities")
+
+    y_pred, y, batch_size = test_data_multilabel_probabilities_mode
+    if batch_size > 1:
+        n_iters = y.shape[0] // batch_size + 1
+        for i in range(n_iters):
+            idx = i * batch_size
+            acc.update((y_pred[idx : idx + batch_size], y[idx : idx + batch_size]))
+    else:
+        acc.update((y_pred, y))
+
+    np_y_pred = to_numpy_multilabel(y_pred)
+    np_y = to_numpy_multilabel(y)
+
+    assert acc._type == "multilabel"
+    assert acc._mode == "probabilities"
     assert isinstance(acc.compute(), float)
     assert accuracy_score(np_y, np_y_pred) == pytest.approx(acc.compute())
 

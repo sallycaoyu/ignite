@@ -14,10 +14,12 @@ class _BaseClassification(Metric):
         output_transform: Callable = lambda x: x,
         is_multilabel: bool = False,
         device: Union[str, torch.device] = torch.device("cpu"),
+        mode: Optional[str] = None,
     ):
         self._is_multilabel = is_multilabel
         self._type: Optional[str] = None
         self._num_classes: Optional[int] = None
+        self._mode = mode
         super(_BaseClassification, self).__init__(output_transform=output_transform, device=device)
 
     def reset(self) -> None:
@@ -64,11 +66,13 @@ class _BaseClassification(Metric):
             num_classes = y_pred.shape[1]
             if num_classes == 1:
                 update_type = "binary"
-                self._check_binary_multilabel_cases((y_pred, y))
+                if self._mode is None:
+                    self._check_binary_multilabel_cases((y_pred, y))
             else:
                 update_type = "multiclass"
         elif y.ndimension() == y_pred.ndimension():
-            self._check_binary_multilabel_cases((y_pred, y))
+            if self._mode is None:
+                self._check_binary_multilabel_cases((y_pred, y))
 
             if self._is_multilabel:
                 update_type = "multilabel"
@@ -89,6 +93,25 @@ class _BaseClassification(Metric):
                 raise RuntimeError(f"Input data type has changed from {self._type} to {update_type}.")
             if self._num_classes != num_classes:
                 raise ValueError(f"Input data number of classes has changed from {self._num_classes} to {num_classes}")
+
+    def _check_mode(self, output: Sequence[torch.Tensor]) -> Sequence[torch.Tensor]:
+        if not (
+            self._mode == "probabilities" or self._mode == "logits" or self._mode == "labels" or self._mode is None
+        ):
+            raise ValueError('Mode must be one of "probabilities", "logits", "labels", or None.')
+
+        y_pred, y = output[0].detach(), output[1].detach()
+
+        if self._mode == "probabilities":
+            if self._type in ["binary", "multilabel"]:
+                y_pred = torch.round(y_pred)
+                self._check_binary_multilabel_cases((y_pred, y))
+        elif self._mode == "logits":
+            if self._type in ["binary", "multilabel"]:
+                y_pred = torch.round(torch.sigmoid(y_pred))
+                self._check_binary_multilabel_cases((y_pred, y))
+
+        return y_pred, y
 
 
 class Accuracy(_BaseClassification):
@@ -213,8 +236,11 @@ class Accuracy(_BaseClassification):
         output_transform: Callable = lambda x: x,
         is_multilabel: bool = False,
         device: Union[str, torch.device] = torch.device("cpu"),
+        mode: Optional[str] = None,
     ):
-        super(Accuracy, self).__init__(output_transform=output_transform, is_multilabel=is_multilabel, device=device)
+        super(Accuracy, self).__init__(
+            output_transform=output_transform, is_multilabel=is_multilabel, device=device, mode=mode
+        )
 
     @reinit__is_reduced
     def reset(self) -> None:
@@ -226,7 +252,7 @@ class Accuracy(_BaseClassification):
     def update(self, output: Sequence[torch.Tensor]) -> None:
         self._check_shape(output)
         self._check_type(output)
-        y_pred, y = output[0].detach(), output[1].detach()
+        y_pred, y = self._check_mode(output)
 
         if self._type == "binary":
             correct = torch.eq(y_pred.view(-1).to(y), y.view(-1))
