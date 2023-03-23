@@ -207,6 +207,7 @@ def test_binary_input_logits_mode(n_times, test_data_binary_logits_mode):
     acc = Accuracy(mode="logits")
 
     y_pred, y, batch_size = test_data_binary_logits_mode
+    print(torch.unique(y_pred))
     acc.reset()
     if batch_size > 1:
         n_iters = y.shape[0] // batch_size + 1
